@@ -1,611 +1,329 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>The Backrooms</title>
-<style>
-  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; font-family: 'Courier New', monospace; cursor:auto; }
-  #c { display:block; width:100%; height:100%; cursor:auto; }
-
-  #overlay {
-    position:fixed; inset:0; background:rgba(5,5,0,0.94);
-    color:#d8cf8a; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; z-index:20; cursor:pointer; letter-spacing:1px;
-  }
-  #overlay h1 { font-size:2.4em; margin:0 0 10px; text-shadow:0 0 14px #7a6f1a; filter:blur(0.3px); }
-  #overlay p { max-width:480px; line-height:1.6; font-size:0.95em; color:#b8ae7a; margin:6px 0; }
-  #overlay .key { border:1px solid #7a6f1a; padding:2px 8px; border-radius:4px; }
-  #overlay.hidden { display:none; }
-
-  #crosshair {
-    position:fixed; top:50%; left:50%; width:6px; height:6px; margin:-3px;
-    border-radius:50%; background:rgba(255,255,240,0.5); pointer-events:none; z-index:10;
-  }
-
-  #vignette {
-    position:fixed; inset:0; pointer-events:none; z-index:5;
-    background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(15,13,0,0.5) 100%);
-  }
-  #grade {
-    position:fixed; inset:0; pointer-events:none; z-index:4;
-    background: #fff3c2; mix-blend-mode:overlay; opacity:0.22;
-  }
-  #grain {
-    position:fixed; inset:0; pointer-events:none; z-index:6; opacity:0.055;
-    background-repeat:repeat; background-size:180px 180px;
-  }
-
-  #hint {
-    position:fixed; bottom:10px; left:50%; transform:translateX(-50%);
-    color:#8b825a; font-size:12px; z-index:6; opacity:0.7; pointer-events:none;
-  }
-
-  .touchzone { position:fixed; bottom:0; width:50%; height:45%; z-index:8; touch-action:none; }
-  #zoneL { left:0; }
-  #zoneR { right:0; }
-  @media (hover:hover) and (pointer:fine) { .touchzone { display:none; } }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Backrooms - Jumpscare Edition</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: monospace;
+        }
+        #instructions {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: #ffcc00;
+            font-size: 18px;
+            text-shadow: 2px 2px 4px #000;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 8px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #jumpscare-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(150, 0, 0, 0.9);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            color: white;
+            z-index: 100;
+        }
+        #jumpscare-screen h1 {
+            font-size: 60px;
+            letter-spacing: 5px;
+            text-shadow: 0 0 10px #000;
+            animation: shake 0.1s infinite;
+        }
+        @keyframes shake {
+            0% { transform: translate(2px, 2px); }
+            50% { transform: translate(-2px, -2px); }
+            100% { transform: translate(2px, -2px); }
+        }
+    </style>
 </head>
 <body>
+    <div id="instructions">Click to Play<br>Use WASD to Move, Mouse to Look<br>RUN FROM THE ENTITY!</div>
+    <div id="crosshair"></div>
+    <div id="jumpscare-screen">
+        <h1>YOU DIED</h1>
+        <p>The entity caught you. Refresh to try again.</p>
+    </div>
 
-<canvas id="c"></canvas>
-<div id="grade"></div>
-<div id="vignette"></div>
-<div id="grain"></div>
-<div id="crosshair"></div>
-<div id="hint">WASD / drag to move &nbsp;&middot;&nbsp; mouse / drag to look &nbsp;&middot;&nbsp; Esc to release</div>
-<div id="zoneL" class="touchzone"></div>
-<div id="zoneR" class="touchzone"></div>
+    <!-- Include Three.js via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 
-<div id="overlay">
-  <h1>THE BACKROOMS</h1>
-  <p>If you're not careful and you noclip out of reality in the wrong areas, you'll end up in the Backrooms. Nothing but the smell of moist carpet, the madness of monotony, and endless rows of pale yellow wallpaper. God save you if you hear something wandering nearby, because it sure as hell has heard you.</p>
-  <p><span class="key">WASD</span> move &nbsp; <span class="key">MOUSE</span> look &nbsp; <span class="key">SHIFT</span> run</p>
-  <p>Click / tap to enter.</p>
-</div>
+    <script>
+        let camera, scene, renderer, controls;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let prevTime = performance.now();
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
 
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-    "simplex-noise": "https://esm.sh/simplex-noise@4"
-  }
-}
-</script>
+        // Entity & Game State
+        let entity;
+        let entitySpeed = 0.035;
+        let isGameOver = false;
 
-<script type="module">
-import * as THREE from "three";
-import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
-import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
-import { createNoise2D } from "simplex-noise";
+        // Web Audio Context for procedural sound effects
+        let audioCtx;
+        let humOscillator;
 
-/* ---------- CONFIG ---------- */
-const CELL = 4;
-const GRID_W = 37;
-const GRID_H = 37;
-const WALL_H = 2.9;
-const PILLAR_SPACING = 3;
-const PARTIAL_WALL_CHANCE = 0.10;
-const ACTIVE_LIGHTS = 7;
+        init();
+        animate();
 
-/* ---------- RENDERER / SCENE ---------- */
-const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, powerPreference:'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.shadowMap.enabled = false;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.55;
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111005);
+            scene.fog = new THREE.FogExp2(0x111005, 0.07);
 
-const scene = new THREE.Scene();
-const FOG_COLOR = 0xd9cd7a;
-scene.fog = new THREE.FogExp2(FOG_COLOR, 0.032);
-scene.background = new THREE.Color(0xcabf6e);
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 1.6, 0);
 
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.05, 60);
-camera.position.set(0, 1.65, 0);
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
 
-window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth/window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
+            controls = new THREE.PointerLockControls(camera, document.body);
 
-/* ---------- PROCEDURAL TEXTURES (+ fake normal maps for extra depth) ---------- */
-function makeCanvas(size=512){ const c=document.createElement('canvas'); c.width=c.height=size; return c; }
-function grain(ctx,size,alpha){
-  const img = ctx.getImageData(0,0,size,size);
-  for(let i=0;i<img.data.length;i+=4){
-    const n = (Math.random()-0.5)*alpha;
-    img.data[i]+=n; img.data[i+1]+=n; img.data[i+2]+=n;
-  }
-  ctx.putImageData(img,0,0);
-}
-function stains(ctx,size,count,color,maxR){
-  for(let i=0;i<count;i++){
-    const x=Math.random()*size, y=Math.random()*size, r=8+Math.random()*maxR;
-    const g = ctx.createRadialGradient(x,y,0,x,y,r);
-    g.addColorStop(0, color);
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
-  }
-}
-// derive a normal map from a color canvas's luminance - cheap "bump" detail
-// with zero extra geometry, sampled once per pixel like any other map.
-function canvasToNormalMap(srcCanvas, strength=2.2){
-  const size = srcCanvas.width;
-  const sctx = srcCanvas.getContext('2d');
-  const src = sctx.getImageData(0,0,size,size).data;
-  const h = new Float32Array(size*size);
-  for(let i=0;i<size*size;i++){
-    h[i] = (0.299*src[i*4]+0.587*src[i*4+1]+0.114*src[i*4+2])/255;
-  }
-  const out = makeCanvas(size);
-  const octx = out.getContext('2d');
-  const img = octx.createImageData(size,size);
-  for(let y=0;y<size;y++){
-    for(let x=0;x<size;x++){
-      const xl = h[y*size+((x-1+size)%size)], xr = h[y*size+((x+1)%size)];
-      const yu = h[((y-1+size)%size)*size+x], yd = h[((y+1)%size)*size+x];
-      const dx=(xl-xr)*strength, dy=(yu-yd)*strength, dz=1.0;
-      const len=Math.sqrt(dx*dx+dy*dy+dz*dz);
-      const idx=(y*size+x)*4;
-      img.data[idx]  =((dx/len)*0.5+0.5)*255;
-      img.data[idx+1]=((dy/len)*0.5+0.5)*255;
-      img.data[idx+2]=((dz/len)*0.5+0.5)*255;
-      img.data[idx+3]=255;
-    }
-  }
-  octx.putImageData(img,0,0);
-  return new THREE.CanvasTexture(out);
-}
+            const instructions = document.getElementById('instructions');
+            instructions.addEventListener('click', () => {
+                if (isGameOver) return;
+                controls.lock();
+                initAudio(); // Start ambient hum on click
+            });
 
-// fractal (multi-octave) simplex noise -> far more organic damp/mottled
-// patterns than per-pixel static, at the cost of one-time generation time.
-const noise2D = createNoise2D();
-function fbm(x,y,octaves=4,lac=2.0,gain=0.5){
-  let amp=0.5, freq=1, sum=0, norm=0;
-  for(let o=0;o<octaves;o++){
-    sum += noise2D(x*freq,y*freq)*amp;
-    norm += amp;
-    amp*=gain; freq*=lac;
-  }
-  return sum/norm; // ~[-1,1]
-}
+            controls.addEventListener('lock', () => {
+                if(!isGameOver) instructions.style.display = 'none';
+            });
 
-function buildMaterial({ paint, size=512, repeat=[1,1], roughness=0.95, metalness=0, normalStrength=2.2, normalScale=0.55, physical=false, clearcoat=0 }){
-  const c = makeCanvas(size);
-  const ctx = c.getContext('2d');
-  paint(ctx,size);
-  const map = new THREE.CanvasTexture(c);
-  map.wrapS = map.wrapT = THREE.RepeatWrapping;
-  map.repeat.set(...repeat);
-  map.colorSpace = THREE.SRGBColorSpace;
-  const normalMap = canvasToNormalMap(c, normalStrength);
-  normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
-  normalMap.repeat.set(...repeat);
-  const opts = { map, normalMap, normalScale:new THREE.Vector2(normalScale,normalScale), roughness, metalness };
-  if(physical){
-    opts.clearcoat = clearcoat;
-    opts.clearcoatRoughness = 0.15;
-    return new THREE.MeshPhysicalMaterial(opts);
-  }
-  return new THREE.MeshStandardMaterial(opts);
-}
+            controls.addEventListener('unlock', () => {
+                if(!isGameOver) instructions.style.display = 'block';
+            });
 
-// pale, flat, slightly-quilted vinyl wallpaper with soft organic water/mildew
-// staining and low overall contrast - matches the washed-out reference look
-// far better than hard hand-placed blobs.
-const wallMat = buildMaterial({
-  size:768, repeat:[1, WALL_H/2.2], roughness:0.88, metalness:0.015, normalStrength:1.6, normalScale:0.45,
-  paint:(ctx,size)=>{
-    ctx.fillStyle = '#dcc46e'; ctx.fillRect(0,0,size,size);
-    const img = ctx.getImageData(0,0,size,size);
-    for(let y=0;y<size;y++){
-      for(let x=0;x<size;x++){
-        const nx=x/size, ny=y/size;
-        // fine quilted diamond weave (the subtle embossed pattern on real
-        // vinyl backrooms wallpaper) via two crossed sine gratings
-        const weave = Math.sin(nx*size*0.24)*Math.sin(ny*size*0.24);
-        // broad, soft, organic damp/mildew staining
-        const damp = fbm(nx*3.2, ny*3.2, 5);
-        const dampG = fbm(nx*2.1+50, ny*2.1+50, 4); // faint green mildew channel
-        const idx=(y*size+x)*4;
-        let r=220, g=196, b=110;
-        r += weave*5; g += weave*4.5; b += weave*2;
-        if(damp>0.12){ const k=(damp-0.12)*1.3; r-=55*k; g-=48*k; b-=30*k; }
-        if(dampG>0.28){ const k=(dampG-0.28)*0.9; r-=10*k; g+=4*k; b-=14*k; }
-        // grubbier near the floor line
-        const edge = Math.max(0,(ny-0.74))*3.2;
-        r-=edge*45; g-=edge*38; b-=edge*14;
-        img.data[idx]=Math.max(0,Math.min(255,r));
-        img.data[idx+1]=Math.max(0,Math.min(255,g));
-        img.data[idx+2]=Math.max(0,Math.min(255,b));
-        img.data[idx+3]=255;
-      }
-    }
-    ctx.putImageData(img,0,0);
-    // faint vertical seams between wallpaper rolls
-    ctx.strokeStyle='rgba(60,45,10,0.28)'; ctx.lineWidth=2;
-    for(let x=0;x<size;x+=size/4){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,size); ctx.stroke(); }
-    grain(ctx,size,10);
-  }
-});
+            scene.add(controls.getObject());
 
-// worn, slightly damp low-pile carpet. Rendered with clearcoat so the
-// fluorescent pools actually glint off it, the way wet carpet does in
-// the reference photos, instead of reading as flat matte fabric.
-const floorMat = buildMaterial({
-  size:640, repeat:[GRID_W/2, GRID_H/2], roughness:0.55, normalStrength:2.6, normalScale:0.7,
-  physical:true, clearcoat:0.35,
-  paint:(ctx,size)=>{
-    const img = ctx.createImageData(size,size);
-    for(let y=0;y<size;y++){
-      for(let x=0;x<size;x++){
-        const nx=x/size, ny=y/size;
-        const fiber = fbm(nx*9,ny*9,3)*0.5 + fbm(nx*30,ny*30,2)*0.25;
-        const damp = fbm(nx*2.4+9, ny*2.4+9, 5);
-        let r=150,g=116,b=62;
-        r += fiber*30; g += fiber*24; b += fiber*14;
-        if(damp>0.15){ const k=(damp-0.15)*1.1; r-=45*k; g-=38*k; b-=22*k; }
-        const idx=(y*size+x)*4;
-        img.data[idx]=Math.max(0,Math.min(255,r));
-        img.data[idx+1]=Math.max(0,Math.min(255,g));
-        img.data[idx+2]=Math.max(0,Math.min(255,b));
-        img.data[idx+3]=255;
-      }
-    }
-    ctx.putImageData(img,0,0);
-    grain(ctx,size,10);
-  }
-});
+            // Keyboard Listeners
+            const onKeyDown = (event) => {
+                switch (event.code) {
+                    case 'KeyW': moveForward = true; break;
+                    case 'KeyA': moveLeft = true; break;
+                    case 'KeyS': moveBackward = true; break;
+                    case 'KeyD': moveRight = true; break;
+                }
+            };
 
-// off-white acoustic drop-ceiling tiles with water-damage rings, aligned
-// so tile seams roughly match the fixture grid overhead.
-const ceilMat = buildMaterial({
-  size:512, repeat:[GRID_W/3, GRID_H/3], roughness:0.82, normalStrength:1.8, normalScale:0.5,
-  paint:(ctx,size)=>{
-    ctx.fillStyle = '#e6e0b4'; ctx.fillRect(0,0,size,size);
-    const img = ctx.getImageData(0,0,size,size);
-    for(let y=0;y<size;y++){
-      for(let x=0;x<size;x++){
-        const nx=x/size, ny=y/size;
-        const pit = fbm(nx*10,ny*10,3)*10; // fine pitted acoustic-tile texture
-        const idx=(y*size+x)*4;
-        img.data[idx]=230+pit; img.data[idx+1]=224+pit; img.data[idx+2]=178+pit*0.6; img.data[idx+3]=255;
-      }
-    }
-    ctx.putImageData(img,0,0);
-    ctx.strokeStyle='rgba(70,65,40,0.55)'; ctx.lineWidth=4;
-    ctx.strokeRect(2,2,size-4,size-4);
-    stains(ctx,size,4,'rgba(120,100,40,0.28)',90);
-    ctx.strokeStyle='rgba(90,75,25,0.3)'; ctx.lineWidth=2;
-    for(let i=0;i<2;i++){
-      const x=40+Math.random()*(size-80), y=40+Math.random()*(size-80), r=20+Math.random()*30;
-      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
-    }
-    grain(ctx,size,8);
-  }
-});
+            const onKeyUp = (event) => {
+                switch (event.code) {
+                    case 'KeyW': moveForward = false; break;
+                    case 'KeyA': moveLeft = false; break;
+                    case 'KeyS': moveBackward = false; break;
+                    case 'KeyD': moveRight = false; break;
+                }
+            };
 
-/* ---------- LAYOUT: open pillar field, density varies like real photosets ---------- */
-function generateLayout(w,h){
-  const grid = Array.from({length:h}, () => new Array(w).fill(0));
-  for(let x=0;x<w;x++){ grid[0][x]=1; grid[h-1][x]=1; }
-  for(let y=0;y<h;y++){ grid[y][0]=1; grid[y][w-1]=1; }
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
 
-  for(let j=PILLAR_SPACING; j<h-1; j+=PILLAR_SPACING){
-    for(let i=PILLAR_SPACING; i<w-1; i+=PILLAR_SPACING){
-      // low-frequency density variation -> open "plains" and dense "pillar forests"
-      const density = 0.5 + 0.42*Math.sin(i*0.28)*Math.cos(j*0.28);
-      if(Math.random() < density){
-        grid[j][i] = 1;
-        if(Math.random() < PARTIAL_WALL_CHANCE){
-          const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
-          const [dx,dy] = dirs[Math.floor(Math.random()*dirs.length)];
-          const nx=i+dx, ny=j+dy;
-          if(nx>0 && nx<w-1 && ny>0 && ny<h-1) grid[ny][nx] = 1;
+            // Lighting
+            const ambientLight = new THREE.AmbientLight(0xffcc66, 0.5);
+            scene.add(ambientLight);
+
+            // --- PROCEDURAL TEXTURES ---
+            const wallCanvas = document.createElement('canvas');
+            wallCanvas.width = 256; wallCanvas.height = 256;
+            const wCtx = wallCanvas.getContext('2d');
+            wCtx.fillStyle = '#c69a36';
+            wCtx.fillRect(0, 0, 256, 256);
+            wCtx.fillStyle = '#a67c22';
+            wCtx.fillRect(20, 20, 216, 216);
+            const wallTexture = new THREE.CanvasTexture(wallCanvas);
+
+            const floorCanvas = document.createElement('canvas');
+            floorCanvas.width = 128; floorCanvas.height = 128;
+            const fCtx = floorCanvas.getContext('2d');
+            fCtx.fillStyle = '#654321';
+            fCtx.fillRect(0, 0, 128, 128);
+            for(let i=0; i<2000; i++) {
+                fCtx.fillStyle = Math.random() > 0.5 ? '#543210' : '#765432';
+                fCtx.fillRect(Math.random()*128, Math.random()*128, 2, 2);
+            }
+            const floorTexture = new THREE.CanvasTexture(floorCanvas);
+            floorTexture.wrapS = THREE.RepeatWrapping;
+            floorTexture.wrapT = THREE.RepeatWrapping;
+            floorTexture.repeat.set(40, 40);
+
+            const wallMaterial = new THREE.MeshStandardMaterial({ map: wallTexture, roughness: 0.8 });
+            const floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.9 });
+            const ceilingMaterial = new THREE.MeshStandardMaterial({ color: 0xddddcc, roughness: 0.5 });
+
+            // Ground & Ceiling
+            const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), floorMaterial);
+            ground.rotation.x = -Math.PI / 2;
+            scene.add(ground);
+
+            const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), ceilingMaterial);
+            ceiling.position.y = 2.5;
+            ceiling.rotation.x = Math.PI / 2;
+            scene.add(ceiling);
+
+            // --- EXPANDED MAZE WALLS ---
+            const wallHeight = 2.5;
+            const mazeLayout = [
+                {x: 0, z: -10, w: 20, d: 1}, {x: 0, z: 10, w: 20, d: 1},
+                {x: -10, z: 0, w: 1, d: 20}, {x: 10, z: 0, w: 1, d: 20},
+                {x: -5, z: -5, w: 1, d: 8}, {x: 5, z: -3, w: 6, d: 1},
+                {x: -2, z: 4, w: 8, d: 1}, {x: 3, z: 5, w: 1, d: 6},
+                {x: -6, z: -7, w: 5, d: 1}, {x: 6, z: 4, w: 4, d: 1}
+            ];
+
+            mazeLayout.forEach(m => {
+                const wallGeo = new THREE.BoxGeometry(m.w, wallHeight, m.d);
+                const wall = new THREE.Mesh(wallGeo, wallMaterial);
+                wall.position.set(m.x, wallHeight / 2, m.z);
+                scene.add(wall);
+            });
+
+            // --- SPAWN ENTITY ---
+            const entityGroup = new THREE.Group();
+            
+            // Body
+            const bodyGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
+            const bodyMat = new THREE.MeshBasicMaterial({ color: 0x050505 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 0.9;
+            entityGroup.add(body);
+
+            // Creepy Glowing Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.1, 8, 8);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            
+            const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye1.position.set(-0.2, 1.6, -0.4);
+            entityGroup.add(eye1);
+
+            const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye2.position.set(0.2, 1.6, -0.4);
+            entityGroup.add(eye2);
+
+            entity = entityGroup;
+            entity.position.set(8, 0, 8); // Start far away in the maze
+            scene.add(entity);
+
+            window.addEventListener('resize', onWindowResize);
         }
-      }
-    }
-  }
-  return grid;
-}
 
-const maze = generateLayout(GRID_W, GRID_H);
-const OX = (GRID_W-1)/2, OZ = (GRID_H-1)/2;
-function gridToWorld(i,j){ return [(i-OX)*CELL, (j-OZ)*CELL]; }
-function worldToGrid(x,z){ return [Math.round(x/CELL+OX), Math.round(z/CELL+OZ)]; }
-function isWall(i,j){
-  if(i<0||j<0||i>=GRID_W||j>=GRID_H) return true;
-  return maze[j][i]===1;
-}
-
-/* ---------- BUILD GEOMETRY ---------- */
-const wallGeos = [];
-const boxGeo = new THREE.BoxGeometry(CELL, WALL_H, CELL);
-for(let j=0;j<GRID_H;j++){
-  for(let i=0;i<GRID_W;i++){
-    if(maze[j][i]===1){
-      const [x,z] = gridToWorld(i,j);
-      const g = boxGeo.clone();
-      g.translate(x, WALL_H/2, z);
-      wallGeos.push(g);
-    }
-  }
-}
-const mergedWalls = BufferGeometryUtils.mergeGeometries(wallGeos);
-const wallMesh = new THREE.Mesh(mergedWalls, wallMat);
-scene.add(wallMesh);
-wallGeos.forEach(g=>g.dispose());
-boxGeo.dispose();
-
-const floorGeo = new THREE.PlaneGeometry(GRID_W*CELL, GRID_H*CELL);
-floorGeo.rotateX(-Math.PI/2);
-scene.add(new THREE.Mesh(floorGeo, floorMat));
-
-const ceilGeo = new THREE.PlaneGeometry(GRID_W*CELL, GRID_H*CELL);
-ceilGeo.rotateX(Math.PI/2);
-ceilGeo.translate(0, WALL_H, 0);
-scene.add(new THREE.Mesh(ceilGeo, ceilMat));
-
-/* ---------- LIGHTING ---------- */
-// low, warm ambient so most of the room sits in gloom between fixtures -
-// the harsh pool-of-light-then-darkness look is what sells the reference photo.
-scene.add(new THREE.HemisphereLight(0xfff6d8, 0x59501f, 0.85));
-scene.add(new THREE.AmbientLight(0xd8c988, 0.55));
-
-// diffuser panel texture: pale glow with a faint center tube seam, like a
-// real recessed fluorescent fixture rather than a flat glowing rectangle
-function diffuserTexture(){
-  const size=128, c=makeCanvas(size), ctx=c.getContext('2d');
-  ctx.fillStyle='#fff8dc'; ctx.fillRect(0,0,size,size);
-  const g = ctx.createLinearGradient(0,0,0,size);
-  g.addColorStop(0,'rgba(150,130,60,0.25)'); g.addColorStop(0.5,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(150,130,60,0.25)');
-  ctx.fillStyle=g; ctx.fillRect(0,0,size,size);
-  ctx.fillStyle='rgba(90,75,30,0.35)'; ctx.fillRect(0,size/2-1.5,size,3);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-const diffuserTex = diffuserTexture();
-const fixtureGeo = new THREE.PlaneGeometry(CELL*0.62, 0.26);
-fixtureGeo.rotateX(Math.PI/2);
-const frameGeoUnit = new THREE.BoxGeometry(CELL*0.78, 0.07, CELL*0.78);
-const frameGeos = [];
-const fixtures = [];
-for(let j=2;j<GRID_H-1;j+=3){
-  for(let i=2;i<GRID_W-1;i+=3){
-    if(maze[j][i]===0){
-      const [x,z] = gridToWorld(i,j);
-      // recessed housing frame (static, batched into one mesh below)
-      const fg = frameGeoUnit.clone();
-      fg.translate(x, WALL_H-0.06, z);
-      frameGeos.push(fg);
-      // glowing diffuser panel (per-fixture flicker)
-      const mat = new THREE.MeshBasicMaterial({ map:diffuserTex, color:0xffffff });
-      const m = new THREE.Mesh(fixtureGeo, mat);
-      m.position.set(x, WALL_H-0.02, z);
-      scene.add(m);
-      fixtures.push({ x, z, mesh:m, mat, phase:Math.random()*Math.PI*2, broken: Math.random()<0.05 });
-    }
-  }
-}
-if(frameGeos.length){
-  const mergedFrames = BufferGeometryUtils.mergeGeometries(frameGeos);
-  const frameMat = new THREE.MeshStandardMaterial({ color:0x8f8a6a, roughness:0.6, metalness:0.4 });
-  scene.add(new THREE.Mesh(mergedFrames, frameMat));
-  frameGeos.forEach(g=>g.dispose());
-}
-frameGeoUnit.dispose();
-
-// fixed-size pool of real point lights, reassigned to nearest fixtures each
-// frame - avoids shader recompiles while still giving true pooled light.
-const activeLights = [];
-for(let k=0;k<ACTIVE_LIGHTS;k++){
-  const l = new THREE.PointLight(0xfffaea, 0, 11, 1.7);
-  scene.add(l);
-  activeLights.push({ light:l, phase:Math.random()*Math.PI*2 });
-}
-
-/* ---------- AUDIO (synthesized hum, no external assets) ---------- */
-let audioCtx=null;
-function startHum(){
-  if(audioCtx) return;
-  audioCtx = new (window.AudioContext||window.webkitAudioContext)();
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type='sine'; osc.frequency.value=60; gain.gain.value=0.02;
-  osc.connect(gain).connect(audioCtx.destination); osc.start();
-  const osc2 = audioCtx.createOscillator();
-  const gain2 = audioCtx.createGain();
-  osc2.type='sine'; osc2.frequency.value=120.5; gain2.gain.value=0.009;
-  osc2.connect(gain2).connect(audioCtx.destination); osc2.start();
-}
-
-/* ---------- GRAIN OVERLAY ---------- */
-(function grainOverlay(){
-  const gc = makeCanvas(128);
-  const gctx = gc.getContext('2d');
-  const img = gctx.createImageData(128,128);
-  for(let i=0;i<img.data.length;i+=4){
-    const v = Math.random()*255;
-    img.data[i]=v; img.data[i+1]=v; img.data[i+2]=v; img.data[i+3]=255;
-  }
-  gctx.putImageData(img,0,0);
-  document.getElementById('grain').style.backgroundImage = `url(${gc.toDataURL()})`;
-})();
-
-/* ---------- CONTROLS ---------- */
-const controls = new PointerLockControls(camera, document.body);
-scene.add(controls.getObject());
-{
-  // spawn point must land on an OPEN cell - the pillar grid can otherwise
-  // place a pillar exactly at the map center, trapping the player inside
-  // solid geometry (which looks pitch black and blocks all movement).
-  function nearestOpenCell(ci,cj){
-    if(!isWall(ci,cj)) return [ci,cj];
-    for(let r=1;r<Math.max(GRID_W,GRID_H);r++){
-      for(let dj=-r;dj<=r;dj++){
-        for(let di=-r;di<=r;di++){
-          if(Math.max(Math.abs(di),Math.abs(dj))!==r) continue;
-          const ni=ci+di, nj=cj+dj;
-          if(!isWall(ni,nj)) return [ni,nj];
+        // Procedural Audio (Classic Backrooms Fluorescent Hum)
+        function initAudio() {
+            if (audioCtx) return;
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                humOscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                
+                humOscillator.type = 'sawtooth';
+                humOscillator.frequency.setValueAtTime(60, audioCtx.currentTime); // 60Hz electrical hum
+                gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime); // Low volume
+                
+                humOscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                humOscillator.start();
+            } catch(e) {
+                console.log("Audio not supported or blocked");
+            }
         }
-      }
-    }
-    return [ci,cj];
-  }
-  const [oi,oj] = nearestOpenCell(Math.floor(GRID_W/2), Math.floor(GRID_H/2));
-  const [sx,sz] = gridToWorld(oi,oj);
-  controls.getObject().position.set(sx, 1.65, sz);
-}
 
-const overlay = document.getElementById('overlay');
-overlay.addEventListener('click', () => { controls.lock(); startHum(); });
+        function triggerJumpscare() {
+            if (isGameOver) return;
+            isGameOver = true;
+            controls.unlock();
+            
+            // Show jumpscare overlay
+            document.getElementById('jumpscare-screen').style.display = 'flex';
 
-// Pointer Lock exit can leave some browsers' OS cursor stuck invisible for a
-// frame; flipping the cursor style forces a redraw so it reliably reappears.
-function restoreCursor(){
-  overlay.classList.remove('hidden');
-  document.body.style.cursor = 'none';
-  requestAnimationFrame(() => { document.body.style.cursor = 'auto'; });
-}
-controls.addEventListener('lock', () => overlay.classList.add('hidden'));
-controls.addEventListener('unlock', restoreCursor);
-document.addEventListener('pointerlockerror', restoreCursor);
-window.addEventListener('blur', () => { if(controls.isLocked) document.exitPointerLock(); });
+            // Play jumpscare sound dynamically
+            if (audioCtx) {
+                try {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.5);
+                    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.5);
+                } catch(e) {}
+            }
+        }
 
-const keys = {};
-window.addEventListener('keydown', e => keys[e.code]=true);
-window.addEventListener('keyup', e => keys[e.code]=false);
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
 
-/* touch controls */
-let moveTouch=null, lookTouch=null;
-let moveVec = {x:0,y:0};
-let lookDelta = {x:0,y:0};
-function bindZone(el, isLeft){
-  el.addEventListener('touchstart', e=>{
-    const t=e.changedTouches[0];
-    const data = {id:t.identifier, sx:t.clientX, sy:t.clientY, x:t.clientX, y:t.clientY};
-    if(isLeft) moveTouch=data; else lookTouch=data;
-    e.preventDefault();
-  }, {passive:false});
-  el.addEventListener('touchmove', e=>{
-    for(const t of e.changedTouches){
-      const id = t.identifier;
-      if(isLeft && moveTouch && id===moveTouch.id){
-        moveTouch.x=t.clientX; moveTouch.y=t.clientY;
-        moveVec.x = THREE.MathUtils.clamp((moveTouch.x-moveTouch.sx)/50,-1,1);
-        moveVec.y = THREE.MathUtils.clamp((moveTouch.y-moveTouch.sy)/50,-1,1);
-      } else if(!isLeft && lookTouch && id===lookTouch.id){
-        lookDelta.x += (t.clientX-lookTouch.x)*0.003;
-        lookDelta.y += (t.clientY-lookTouch.y)*0.003;
-        lookTouch.x=t.clientX; lookTouch.y=t.clientY;
-      }
-    }
-    e.preventDefault();
-  }, {passive:false});
-  el.addEventListener('touchend', e=>{
-    for(const t of e.changedTouches){
-      if(isLeft && moveTouch && t.identifier===moveTouch.id){ moveTouch=null; moveVec={x:0,y:0}; }
-      if(!isLeft && lookTouch && t.identifier===lookTouch.id){ lookTouch=null; }
-    }
-  });
-}
-bindZone(document.getElementById('zoneL'), true);
-bindZone(document.getElementById('zoneR'), false);
-document.getElementById('zoneR').addEventListener('touchstart', () => { if(!audioCtx) startHum(); });
+        function animate() {
+            requestAnimationFrame(animate);
 
-/* ---------- MOVEMENT / COLLISION ---------- */
-const PLAYER_R = 0.32;
-function canStand(x,z){
-  const offs = [[-1,-1],[1,-1],[-1,1],[1,1]];
-  for(const [ox,oz] of offs){
-    const [i,j] = worldToGrid(x+ox*PLAYER_R, z+oz*PLAYER_R);
-    if(isWall(i,j)) return false;
-  }
-  return true;
-}
+            if (isGameOver) return;
 
-const clock = new THREE.Clock();
-let bobT = 0;
+            const time = performance.now();
+            if (controls.isLocked === true) {
+                const delta = (time - prevTime) / 1000;
 
-function animate(){
-  requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const t = clock.elapsedTime;
-  const obj = controls.getObject();
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
 
-  for(const f of fixtures){
-    let on = !f.broken || (Math.sin(t*2+f.phase) > 0.6);
-    const flicker = Math.sin(t*7+f.phase) + Math.sin(t*17+f.phase)*0.4;
-    if(flicker < -1.3) on = false;
-    f.mat.color.setScalar(on ? 1 : 0.1);
-  }
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
 
-  const sorted = fixtures
-    .map(f => ({ f, d2:(f.x-obj.position.x)**2 + (f.z-obj.position.z)**2 }))
-    .sort((a,b)=>a.d2-b.d2)
-    .slice(0, ACTIVE_LIGHTS);
-  for(let k=0;k<ACTIVE_LIGHTS;k++){
-    const al = activeLights[k];
-    if(sorted[k]){
-      const f = sorted[k].f;
-      al.light.position.set(f.x, WALL_H-0.3, f.z);
-      const hum = 0.92 + Math.sin(t*9+al.phase)*0.05;
-      const broken = f.mat.color.r < 0.5;
-      al.light.intensity = broken ? 0.25 : 2.0*hum;
-    } else {
-      al.light.intensity = 0;
-    }
-  }
+                if (moveForward || moveBackward) velocity.z -= direction.z * 40.0 * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * 40.0 * delta;
 
-  if(controls.isLocked || moveTouch || lookTouch){
-    if(lookDelta.x || lookDelta.y){
-      const euler = new THREE.Euler(0,0,0,'YXZ');
-      euler.setFromQuaternion(camera.quaternion);
-      euler.y -= lookDelta.x;
-      euler.x -= lookDelta.y;
-      euler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x));
-      camera.quaternion.setFromEuler(euler);
-      lookDelta.x = 0; lookDelta.y = 0;
-    }
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
 
-    const running = keys['ShiftLeft'] || keys['ShiftRight'];
-    const speed = running ? 5.2 : 3.0;
+                // --- ENTITY AI & JUMPSCARE CHECK ---
+                if (entity) {
+                    const playerPos = controls.getObject().position;
+                    entity.lookAt(playerPos.x, entity.position.y, playerPos.z);
+                    entity.translateZ(entitySpeed);
 
-    let fwd = (keys['KeyW']||keys['ArrowUp']?1:0) - (keys['KeyS']||keys['ArrowDown']?1:0);
-    let strafe = (keys['KeyD']||keys['ArrowRight']?1:0) - (keys['KeyA']||keys['ArrowLeft']?1:0);
-    fwd += -moveVec.y;
-    strafe += moveVec.x;
-    const len = Math.hypot(fwd,strafe);
-    if(len>1){ fwd/=len; strafe/=len; }
+                    // Check distance to player for Jumpscare
+                    const distance = entity.position.distanceTo(playerPos);
+                    if (distance < 1.2) {
+                        triggerJumpscare();
+                    }
+                }
+            }
 
-    const forwardVec = new THREE.Vector3();
-    camera.getWorldDirection(forwardVec);
-    forwardVec.y = 0; forwardVec.normalize();
-    const rightVec = new THREE.Vector3().crossVectors(forwardVec, camera.up).normalize();
-
-    const move = new THREE.Vector3()
-      .addScaledVector(forwardVec, fwd*speed*dt)
-      .addScaledVector(rightVec, strafe*speed*dt);
-
-    const curX = obj.position.x, curZ = obj.position.z;
-    if(canStand(curX+move.x, curZ)) obj.position.x += move.x;
-    if(canStand(obj.position.x, curZ+move.z)) obj.position.z += move.z;
-
-    if(len>0.05){
-      bobT += dt*(running?14:9);
-      obj.position.y = 1.65 + Math.sin(bobT)*0.035;
-    }
-  }
-
-  renderer.render(scene, camera);
-}
-animate();
-</script>
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+    </script>
 </body>
 </html>
