@@ -69,7 +69,8 @@
 {
   "imports": {
     "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "simplex-noise": "https://esm.sh/simplex-noise@4"
   }
 }
 </script>
@@ -78,6 +79,7 @@
 import * as THREE from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
+import { createNoise2D } from "simplex-noise";
 
 /* ---------- CONFIG ---------- */
 const CELL = 4;
@@ -160,7 +162,20 @@ function canvasToNormalMap(srcCanvas, strength=2.2){
   return new THREE.CanvasTexture(out);
 }
 
-function buildMaterial({ paint, size=512, repeat=[1,1], roughness=0.95, metalness=0, normalStrength=2.2, normalScale=0.55 }){
+// fractal (multi-octave) simplex noise -> far more organic damp/mottled
+// patterns than per-pixel static, at the cost of one-time generation time.
+const noise2D = createNoise2D();
+function fbm(x,y,octaves=4,lac=2.0,gain=0.5){
+  let amp=0.5, freq=1, sum=0, norm=0;
+  for(let o=0;o<octaves;o++){
+    sum += noise2D(x*freq,y*freq)*amp;
+    norm += amp;
+    amp*=gain; freq*=lac;
+  }
+  return sum/norm; // ~[-1,1]
+}
+
+function buildMaterial({ paint, size=512, repeat=[1,1], roughness=0.95, metalness=0, normalStrength=2.2, normalScale=0.55, physical=false, clearcoat=0 }){
   const c = makeCanvas(size);
   const ctx = c.getContext('2d');
   paint(ctx,size);
@@ -171,64 +186,107 @@ function buildMaterial({ paint, size=512, repeat=[1,1], roughness=0.95, metalnes
   const normalMap = canvasToNormalMap(c, normalStrength);
   normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
   normalMap.repeat.set(...repeat);
-  return new THREE.MeshStandardMaterial({ map, normalMap, normalScale:new THREE.Vector2(normalScale,normalScale), roughness, metalness });
+  const opts = { map, normalMap, normalScale:new THREE.Vector2(normalScale,normalScale), roughness, metalness };
+  if(physical){
+    opts.clearcoat = clearcoat;
+    opts.clearcoatRoughness = 0.15;
+    return new THREE.MeshPhysicalMaterial(opts);
+  }
+  return new THREE.MeshStandardMaterial(opts);
 }
 
+// pale, flat, slightly-quilted vinyl wallpaper with soft organic water/mildew
+// staining and low overall contrast - matches the washed-out reference look
+// far better than hard hand-placed blobs.
 const wallMat = buildMaterial({
-  size:640, repeat:[1, WALL_H/2.2], roughness:0.9, metalness:0.02, normalStrength:2.6, normalScale:0.7,
+  size:768, repeat:[1, WALL_H/2.2], roughness:0.88, metalness:0.015, normalStrength:1.6, normalScale:0.45,
   paint:(ctx,size)=>{
-    ctx.fillStyle = '#d9c268'; ctx.fillRect(0,0,size,size);
-    ctx.strokeStyle = 'rgba(120,95,20,0.35)'; ctx.lineWidth = 1.4;
-    const step = 11;
-    for(let x=-size;x<size*2;x+=step){
-      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x+size,size); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(x,size); ctx.lineTo(x+size,0); ctx.stroke();
+    ctx.fillStyle = '#dcc46e'; ctx.fillRect(0,0,size,size);
+    const img = ctx.getImageData(0,0,size,size);
+    for(let y=0;y<size;y++){
+      for(let x=0;x<size;x++){
+        const nx=x/size, ny=y/size;
+        // fine quilted diamond weave (the subtle embossed pattern on real
+        // vinyl backrooms wallpaper) via two crossed sine gratings
+        const weave = Math.sin(nx*size*0.24)*Math.sin(ny*size*0.24);
+        // broad, soft, organic damp/mildew staining
+        const damp = fbm(nx*3.2, ny*3.2, 5);
+        const dampG = fbm(nx*2.1+50, ny*2.1+50, 4); // faint green mildew channel
+        const idx=(y*size+x)*4;
+        let r=220, g=196, b=110;
+        r += weave*5; g += weave*4.5; b += weave*2;
+        if(damp>0.12){ const k=(damp-0.12)*1.3; r-=55*k; g-=48*k; b-=30*k; }
+        if(dampG>0.28){ const k=(dampG-0.28)*0.9; r-=10*k; g+=4*k; b-=14*k; }
+        // grubbier near the floor line
+        const edge = Math.max(0,(ny-0.74))*3.2;
+        r-=edge*45; g-=edge*38; b-=edge*14;
+        img.data[idx]=Math.max(0,Math.min(255,r));
+        img.data[idx+1]=Math.max(0,Math.min(255,g));
+        img.data[idx+2]=Math.max(0,Math.min(255,b));
+        img.data[idx+3]=255;
+      }
     }
-    ctx.strokeStyle = 'rgba(255,235,170,0.10)';
-    for(let x=-size;x<size*2;x+=step){
-      ctx.beginPath(); ctx.moveTo(x+step/2,0); ctx.lineTo(x+size+step/2,size); ctx.stroke();
-    }
-    // vertical wallpaper seams
-    ctx.strokeStyle='rgba(60,45,10,0.4)'; ctx.lineWidth=2;
+    ctx.putImageData(img,0,0);
+    // faint vertical seams between wallpaper rolls
+    ctx.strokeStyle='rgba(60,45,10,0.28)'; ctx.lineWidth=2;
     for(let x=0;x<size;x+=size/4){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,size); ctx.stroke(); }
-    stains(ctx,size,18,'rgba(60,48,10,0.32)',100);
-    stains(ctx,size,12,'rgba(30,60,20,0.18)',65);
-    const edgeGrad = ctx.createLinearGradient(0,size*0.78,0,size);
-    edgeGrad.addColorStop(0,'rgba(0,0,0,0)'); edgeGrad.addColorStop(1,'rgba(25,20,5,0.4)');
-    ctx.fillStyle=edgeGrad; ctx.fillRect(0,0,size,size);
-    grain(ctx,size,18);
+    grain(ctx,size,10);
   }
 });
 
+// worn, slightly damp low-pile carpet. Rendered with clearcoat so the
+// fluorescent pools actually glint off it, the way wet carpet does in
+// the reference photos, instead of reading as flat matte fabric.
 const floorMat = buildMaterial({
-  size:512, repeat:[GRID_W/2, GRID_H/2], roughness:1.0, normalStrength:3.2, normalScale:0.8,
+  size:640, repeat:[GRID_W/2, GRID_H/2], roughness:0.55, normalStrength:2.6, normalScale:0.7,
+  physical:true, clearcoat:0.35,
   paint:(ctx,size)=>{
-    ctx.fillStyle = '#8a713a'; ctx.fillRect(0,0,size,size);
-    for(let i=0;i<18000;i++){
-      const x=Math.random()*size, y=Math.random()*size;
-      const s = Math.random();
-      ctx.fillStyle = s<0.5 ? 'rgba(95,72,40,0.55)' : (s<0.85 ? 'rgba(28,18,7,0.55)' : 'rgba(150,110,60,0.4)');
-      ctx.fillRect(x,y,1.6,1.6);
+    const img = ctx.createImageData(size,size);
+    for(let y=0;y<size;y++){
+      for(let x=0;x<size;x++){
+        const nx=x/size, ny=y/size;
+        const fiber = fbm(nx*9,ny*9,3)*0.5 + fbm(nx*30,ny*30,2)*0.25;
+        const damp = fbm(nx*2.4+9, ny*2.4+9, 5);
+        let r=150,g=116,b=62;
+        r += fiber*30; g += fiber*24; b += fiber*14;
+        if(damp>0.15){ const k=(damp-0.15)*1.1; r-=45*k; g-=38*k; b-=22*k; }
+        const idx=(y*size+x)*4;
+        img.data[idx]=Math.max(0,Math.min(255,r));
+        img.data[idx+1]=Math.max(0,Math.min(255,g));
+        img.data[idx+2]=Math.max(0,Math.min(255,b));
+        img.data[idx+3]=255;
+      }
     }
-    stains(ctx,size,22,'rgba(12,8,3,0.4)',115);
-    stains(ctx,size,9,'rgba(70,55,25,0.28)',150);
-    grain(ctx,size,14);
+    ctx.putImageData(img,0,0);
+    grain(ctx,size,10);
   }
 });
 
+// off-white acoustic drop-ceiling tiles with water-damage rings, aligned
+// so tile seams roughly match the fixture grid overhead.
 const ceilMat = buildMaterial({
-  size:384, repeat:[GRID_W/1.2, GRID_H/1.2], roughness:0.85, normalStrength:2.0, normalScale:0.4,
+  size:512, repeat:[GRID_W/3, GRID_H/3], roughness:0.82, normalStrength:1.8, normalScale:0.5,
   paint:(ctx,size)=>{
-    ctx.fillStyle = '#e2dcae'; ctx.fillRect(0,0,size,size);
-    ctx.strokeStyle='rgba(70,65,40,0.55)'; ctx.lineWidth=3;
+    ctx.fillStyle = '#e6e0b4'; ctx.fillRect(0,0,size,size);
+    const img = ctx.getImageData(0,0,size,size);
+    for(let y=0;y<size;y++){
+      for(let x=0;x<size;x++){
+        const nx=x/size, ny=y/size;
+        const pit = fbm(nx*10,ny*10,3)*10; // fine pitted acoustic-tile texture
+        const idx=(y*size+x)*4;
+        img.data[idx]=230+pit; img.data[idx+1]=224+pit; img.data[idx+2]=178+pit*0.6; img.data[idx+3]=255;
+      }
+    }
+    ctx.putImageData(img,0,0);
+    ctx.strokeStyle='rgba(70,65,40,0.55)'; ctx.lineWidth=4;
     ctx.strokeRect(2,2,size-4,size-4);
-    stains(ctx,size,3,'rgba(120,100,40,0.3)',80);
-    ctx.strokeStyle='rgba(90,75,25,0.32)'; ctx.lineWidth=2;
+    stains(ctx,size,4,'rgba(120,100,40,0.28)',90);
+    ctx.strokeStyle='rgba(90,75,25,0.3)'; ctx.lineWidth=2;
     for(let i=0;i<2;i++){
       const x=40+Math.random()*(size-80), y=40+Math.random()*(size-80), r=20+Math.random()*30;
       ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
     }
-    grain(ctx,size,10);
+    grain(ctx,size,8);
   }
 });
 
@@ -299,21 +357,49 @@ scene.add(new THREE.Mesh(ceilGeo, ceilMat));
 scene.add(new THREE.HemisphereLight(0xfff6d8, 0x59501f, 0.85));
 scene.add(new THREE.AmbientLight(0xd8c988, 0.55));
 
-const fixtureGeo = new THREE.PlaneGeometry(CELL*0.68, 0.3);
+// diffuser panel texture: pale glow with a faint center tube seam, like a
+// real recessed fluorescent fixture rather than a flat glowing rectangle
+function diffuserTexture(){
+  const size=128, c=makeCanvas(size), ctx=c.getContext('2d');
+  ctx.fillStyle='#fff8dc'; ctx.fillRect(0,0,size,size);
+  const g = ctx.createLinearGradient(0,0,0,size);
+  g.addColorStop(0,'rgba(150,130,60,0.25)'); g.addColorStop(0.5,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(150,130,60,0.25)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,size,size);
+  ctx.fillStyle='rgba(90,75,30,0.35)'; ctx.fillRect(0,size/2-1.5,size,3);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+const diffuserTex = diffuserTexture();
+const fixtureGeo = new THREE.PlaneGeometry(CELL*0.62, 0.26);
 fixtureGeo.rotateX(Math.PI/2);
+const frameGeoUnit = new THREE.BoxGeometry(CELL*0.78, 0.07, CELL*0.78);
+const frameGeos = [];
 const fixtures = [];
 for(let j=2;j<GRID_H-1;j+=3){
   for(let i=2;i<GRID_W-1;i+=3){
     if(maze[j][i]===0){
-      const mat = new THREE.MeshBasicMaterial({ color:0xfff6d0 });
-      const m = new THREE.Mesh(fixtureGeo, mat);
       const [x,z] = gridToWorld(i,j);
-      m.position.set(x, WALL_H-0.015, z);
+      // recessed housing frame (static, batched into one mesh below)
+      const fg = frameGeoUnit.clone();
+      fg.translate(x, WALL_H-0.06, z);
+      frameGeos.push(fg);
+      // glowing diffuser panel (per-fixture flicker)
+      const mat = new THREE.MeshBasicMaterial({ map:diffuserTex, color:0xffffff });
+      const m = new THREE.Mesh(fixtureGeo, mat);
+      m.position.set(x, WALL_H-0.02, z);
       scene.add(m);
       fixtures.push({ x, z, mesh:m, mat, phase:Math.random()*Math.PI*2, broken: Math.random()<0.05 });
     }
   }
 }
+if(frameGeos.length){
+  const mergedFrames = BufferGeometryUtils.mergeGeometries(frameGeos);
+  const frameMat = new THREE.MeshStandardMaterial({ color:0x8f8a6a, roughness:0.6, metalness:0.4 });
+  scene.add(new THREE.Mesh(mergedFrames, frameMat));
+  frameGeos.forEach(g=>g.dispose());
+}
+frameGeoUnit.dispose();
 
 // fixed-size pool of real point lights, reassigned to nearest fixtures each
 // frame - avoids shader recompiles while still giving true pooled light.
