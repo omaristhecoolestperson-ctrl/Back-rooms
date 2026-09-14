@@ -3,128 +3,172 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Backrooms - Jumpscare Edition</title>
+    <title>The Backrooms</title>
     <style>
         body {
             margin: 0;
             overflow: hidden;
             background-color: #000;
-            font-family: monospace;
+            font-family: Arial, sans-serif;
         }
-        #instructions {
-            position: absolute;
-            top: 20px;
-            width: 100%;
-            text-align: center;
-            color: #ffcc00;
-            font-size: 18px;
-            text-shadow: 2px 2px 4px #000;
-            pointer-events: none;
-            z-index: 10;
-        }
-        #crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 8px;
-            height: 8px;
-            background: rgba(255, 255, 255, 0.5);
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            pointer-events: none;
-        }
-        #jumpscare-screen {
+        #start-screen {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(150, 0, 0, 0.9);
-            display: none;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            flex-direction: column;
-            color: white;
             z-index: 100;
+            color: #d4af37;
         }
-        #jumpscare-screen h1 {
-            font-size: 60px;
-            letter-spacing: 5px;
-            text-shadow: 0 0 10px #000;
-            animation: shake 0.1s infinite;
+        #start-screen h1 {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            text-shadow: 0 0 10px #d4af37;
         }
-        @keyframes shake {
-            0% { transform: translate(2px, 2px); }
-            50% { transform: translate(-2px, -2px); }
-            100% { transform: translate(2px, -2px); }
+        #start-btn {
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            background-color: #d4af37;
+            color: #000;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 5px;
+            transition: 0.2s;
+        }
+        #start-btn:hover {
+            background-color: #fff;
+        }
+        #instructions {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: #fff;
+            font-size: 1rem;
+            pointer-events: none;
+            text-shadow: 1px 1px 2px #000;
         }
     </style>
 </head>
 <body>
-    <div id="instructions">Click to Play<br>Use WASD to Move, Mouse to Look<br>RUN FROM THE ENTITY!</div>
-    <div id="crosshair"></div>
-    <div id="jumpscare-screen">
-        <h1>YOU DIED</h1>
-        <p>The entity caught you. Refresh to try again.</p>
+
+    <!-- Click to Start Overlay -->
+    <div id="start-screen">
+        <h1>THE BACKROOMS</h1>
+        <button id="start-btn">CLICK TO START</button>
     </div>
 
-    <!-- Include Three.js via CDN -->
+    <div id="instructions">Use WASD to move, Mouse to look around. Don't hit the walls.</div>
+
+    <!-- Include Three.js and PointerLockControls from CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 
     <script>
-        let camera, scene, renderer, controls;
+        let scene, camera, renderer, controls;
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let prevTime = performance.now();
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
-
-        // Entity & Game State
-        let entity;
-        let entitySpeed = 0.035;
-        let isGameOver = false;
-
-        // Web Audio Context for procedural sound effects
-        let audioCtx;
-        let humOscillator;
+        
+        const walls = []; // Store wall bounding boxes for collision
 
         init();
         animate();
 
         function init() {
+            // 1. Scene setup with yellow backrooms aesthetic & fog
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x111005);
-            scene.fog = new THREE.FogExp2(0x111005, 0.07);
+            scene.background = new THREE.Color(0xd4af37);
+            scene.fog = new THREE.FogExp2(0xd4af37, 0.035);
 
+            // 2. Camera setup
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 1.6, 0);
+            camera.position.set(0, 1.6, 0); // Eye level height
 
+            // 3. Renderer setup
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
             document.body.appendChild(renderer.domElement);
 
+            // 4. Pointer Lock Controls for Mouse Look
             controls = new THREE.PointerLockControls(camera, document.body);
 
-            const instructions = document.getElementById('instructions');
-            instructions.addEventListener('click', () => {
-                if (isGameOver) return;
+            const startScreen = document.getElementById('start-screen');
+            const startBtn = document.getElementById('start-btn');
+
+            startBtn.addEventListener('click', () => {
                 controls.lock();
-                initAudio(); // Start ambient hum on click
             });
 
             controls.addEventListener('lock', () => {
-                if(!isGameOver) instructions.style.display = 'none';
+                startScreen.style.display = 'none';
             });
 
             controls.addEventListener('unlock', () => {
-                if(!isGameOver) instructions.style.display = 'block';
+                startScreen.style.display = 'flex';
             });
 
             scene.add(controls.getObject());
 
-            // Keyboard Listeners
-            const onKeyDown = (event) => {
+            // 5. Lighting (Dim fluorescent style)
+            const ambientLight = new THREE.AmbientLight(0xfffaed, 0.7);
+            scene.add(ambientLight);
+
+            const pointLight = new THREE.PointLight(0xffe87c, 1, 20);
+            pointLight.position.set(0, 3, 0);
+            scene.add(pointLight);
+
+            // 6. Materials
+            const wallMaterial = new THREE.MeshBasicMaterial({ color: 0xc29b38 });
+            const floorMaterial = new THREE.MeshBasicMaterial({ color: 0x8c7323 });
+            const ceilingMaterial = new THREE.MeshBasicMaterial({ color: 0x3b351a });
+
+            // 7. Build Environment (Floor & Ceiling)
+            const floorGeometry = new THREE.PlaneGeometry(50, 50);
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            const ceilingGeometry = new THREE.PlaneGeometry(50, 50);
+            const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.y = 4;
+            scene.add(ceiling);
+
+            // 8. Build Maze Walls with Collisions
+            // Helper function to create walls
+            function createWall(x, z, width, depth) {
+                const wallGeo = new THREE.BoxGeometry(width, 4, depth);
+                const wallMesh = new THREE.Mesh(wallGeo, wallMaterial);
+                wallMesh.position.set(x, 2, z);
+                scene.add(wallMesh);
+
+                // Create and store bounding box for collision detection
+                const box = new THREE.Box3().setFromObject(wallMesh);
+                walls.push(box);
+            }
+
+            // Outer boundaries
+            createWall(0, -25, 50, 1);
+            createWall(0, 25, 50, 1);
+            createWall(-25, 0, 1, 50);
+            createWall(25, 0, 1, 50);
+
+            // Internal Backrooms maze walls
+            createWall(-10, -10, 15, 1);
+            createWall(10, -5, 1, 15);
+            createWall(-5, 10, 15, 1);
+            createWall(5, 10, 1, 10);
+
+            // 9. Keyboard Event Listeners
+            const onKeyDown = function (event) {
                 switch (event.code) {
                     case 'KeyW': moveForward = true; break;
                     case 'KeyA': moveLeft = true; break;
@@ -133,7 +177,7 @@
                 }
             };
 
-            const onKeyUp = (event) => {
+            const onKeyUp = function (event) {
                 switch (event.code) {
                     case 'KeyW': moveForward = false; break;
                     case 'KeyA': moveLeft = false; break;
@@ -145,153 +189,37 @@
             document.addEventListener('keydown', onKeyDown);
             document.addEventListener('keyup', onKeyUp);
 
-            // Lighting
-            const ambientLight = new THREE.AmbientLight(0xffcc66, 0.5);
-            scene.add(ambientLight);
-
-            // --- PROCEDURAL TEXTURES ---
-            const wallCanvas = document.createElement('canvas');
-            wallCanvas.width = 256; wallCanvas.height = 256;
-            const wCtx = wallCanvas.getContext('2d');
-            wCtx.fillStyle = '#c69a36';
-            wCtx.fillRect(0, 0, 256, 256);
-            wCtx.fillStyle = '#a67c22';
-            wCtx.fillRect(20, 20, 216, 216);
-            const wallTexture = new THREE.CanvasTexture(wallCanvas);
-
-            const floorCanvas = document.createElement('canvas');
-            floorCanvas.width = 128; floorCanvas.height = 128;
-            const fCtx = floorCanvas.getContext('2d');
-            fCtx.fillStyle = '#654321';
-            fCtx.fillRect(0, 0, 128, 128);
-            for(let i=0; i<2000; i++) {
-                fCtx.fillStyle = Math.random() > 0.5 ? '#543210' : '#765432';
-                fCtx.fillRect(Math.random()*128, Math.random()*128, 2, 2);
-            }
-            const floorTexture = new THREE.CanvasTexture(floorCanvas);
-            floorTexture.wrapS = THREE.RepeatWrapping;
-            floorTexture.wrapT = THREE.RepeatWrapping;
-            floorTexture.repeat.set(40, 40);
-
-            const wallMaterial = new THREE.MeshStandardMaterial({ map: wallTexture, roughness: 0.8 });
-            const floorMaterial = new THREE.MeshStandardMaterial({ map: floorTexture, roughness: 0.9 });
-            const ceilingMaterial = new THREE.MeshStandardMaterial({ color: 0xddddcc, roughness: 0.5 });
-
-            // Ground & Ceiling
-            const ground = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), floorMaterial);
-            ground.rotation.x = -Math.PI / 2;
-            scene.add(ground);
-
-            const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(100, 100), ceilingMaterial);
-            ceiling.position.y = 2.5;
-            ceiling.rotation.x = Math.PI / 2;
-            scene.add(ceiling);
-
-            // --- EXPANDED MAZE WALLS ---
-            const wallHeight = 2.5;
-            const mazeLayout = [
-                {x: 0, z: -10, w: 20, d: 1}, {x: 0, z: 10, w: 20, d: 1},
-                {x: -10, z: 0, w: 1, d: 20}, {x: 10, z: 0, w: 1, d: 20},
-                {x: -5, z: -5, w: 1, d: 8}, {x: 5, z: -3, w: 6, d: 1},
-                {x: -2, z: 4, w: 8, d: 1}, {x: 3, z: 5, w: 1, d: 6},
-                {x: -6, z: -7, w: 5, d: 1}, {x: 6, z: 4, w: 4, d: 1}
-            ];
-
-            mazeLayout.forEach(m => {
-                const wallGeo = new THREE.BoxGeometry(m.w, wallHeight, m.d);
-                const wall = new THREE.Mesh(wallGeo, wallMaterial);
-                wall.position.set(m.x, wallHeight / 2, m.z);
-                scene.add(wall);
-            });
-
-            // --- SPAWN ENTITY ---
-            const entityGroup = new THREE.Group();
-            
-            // Body
-            const bodyGeo = new THREE.BoxGeometry(0.8, 1.8, 0.8);
-            const bodyMat = new THREE.MeshBasicMaterial({ color: 0x050505 });
-            const body = new THREE.Mesh(bodyGeo, bodyMat);
-            body.position.y = 0.9;
-            entityGroup.add(body);
-
-            // Creepy Glowing Eyes
-            const eyeGeo = new THREE.SphereGeometry(0.1, 8, 8);
-            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-            
-            const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
-            eye1.position.set(-0.2, 1.6, -0.4);
-            entityGroup.add(eye1);
-
-            const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
-            eye2.position.set(0.2, 1.6, -0.4);
-            entityGroup.add(eye2);
-
-            entity = entityGroup;
-            entity.position.set(8, 0, 8); // Start far away in the maze
-            scene.add(entity);
-
             window.addEventListener('resize', onWindowResize);
         }
 
-        // Procedural Audio (Classic Backrooms Fluorescent Hum)
-        function initAudio() {
-            if (audioCtx) return;
-            try {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                humOscillator = audioCtx.createOscillator();
-                const gainNode = audioCtx.createGain();
-                
-                humOscillator.type = 'sawtooth';
-                humOscillator.frequency.setValueAtTime(60, audioCtx.currentTime); // 60Hz electrical hum
-                gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime); // Low volume
-                
-                humOscillator.connect(gainNode);
-                gainNode.connect(audioCtx.destination);
-                humOscillator.start();
-            } catch(e) {
-                console.log("Audio not supported or blocked");
-            }
-        }
-
-        function triggerJumpscare() {
-            if (isGameOver) return;
-            isGameOver = true;
-            controls.unlock();
-            
-            // Show jumpscare overlay
-            document.getElementById('jumpscare-screen').style.display = 'flex';
-
-            // Play jumpscare sound dynamically
-            if (audioCtx) {
-                try {
-                    const osc = audioCtx.createOscillator();
-                    const gain = audioCtx.createGain();
-                    osc.type = 'square';
-                    osc.frequency.setValueAtTime(150, audioCtx.currentTime);
-                    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.5);
-                    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-                    osc.connect(gain);
-                    gain.connect(audioCtx.destination);
-                    osc.start();
-                    osc.stop(audioCtx.currentTime + 0.5);
-                } catch(e) {}
-            }
-        }
-
-        function onWindowResize() {
+        function windowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
 
+        // Simple Collision Check against player position
+        function checkCollision(position) {
+            const playerRadius = 0.4;
+            // Create a bounding box representing the player's space
+            const playerBox = new THREE.Box3(
+                new THREE.Vector3(position.x - playerRadius, position.y - 1.5, position.z - playerRadius),
+                new THREE.Vector3(position.x + playerRadius, position.y + 0.5, position.z + playerRadius)
+            );
+
+            for (let i = 0; i < walls.length; i++) {
+                if (playerBox.intersectsBox(walls[i])) {
+                    return true; // Collision!
+                }
+            }
+            return false;
+        }
+
         function animate() {
             requestAnimationFrame(animate);
 
-            if (isGameOver) return;
-
-            const time = performance.now();
             if (controls.isLocked === true) {
+                const time = performance.now();
                 const delta = (time - prevTime) / 1000;
 
                 velocity.x -= velocity.x * 10.0 * delta;
@@ -299,29 +227,27 @@
 
                 direction.z = Number(moveForward) - Number(moveBackward);
                 direction.x = Number(moveRight) - Number(moveLeft);
-                direction.normalize();
+                direction.normalize(); // Consistent movement speed in all directions
 
                 if (moveForward || moveBackward) velocity.z -= direction.z * 40.0 * delta;
                 if (moveLeft || moveRight) velocity.x -= direction.x * 40.0 * delta;
 
+                // Predict Next Position X
+                const oldPosition = controls.getObject().position.clone();
                 controls.moveRight(-velocity.x * delta);
-                controls.moveForward(-velocity.z * delta);
-
-                // --- ENTITY AI & JUMPSCARE CHECK ---
-                if (entity) {
-                    const playerPos = controls.getObject().position;
-                    entity.lookAt(playerPos.x, entity.position.y, playerPos.z);
-                    entity.translateZ(entitySpeed);
-
-                    // Check distance to player for Jumpscare
-                    const distance = entity.position.distanceTo(playerPos);
-                    if (distance < 1.2) {
-                        triggerJumpscare();
-                    }
+                if (checkCollision(controls.getObject().position)) {
+                    controls.getObject().position.x = oldPosition.x; // Revert X if collision
                 }
+
+                // Predict Next Position Z
+                controls.moveForward(-velocity.z * delta);
+                if (checkCollision(controls.getObject().position)) {
+                    controls.getObject().position.z = oldPosition.z; // Revert Z if collision
+                }
+
+                prevTime = time;
             }
 
-            prevTime = time;
             renderer.render(scene, camera);
         }
     </script>
