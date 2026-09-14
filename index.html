@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Backrooms</title>
+    <title>The Backrooms Hub</title>
     <style>
         body {
             margin: 0;
@@ -27,18 +27,31 @@
         }
         #start-screen h1 {
             font-size: 3rem;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             text-shadow: 0 0 10px #d4af37;
         }
+        .menu-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        select, #start-btn {
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            border: 2px solid #d4af37;
+        }
+        select {
+            background-color: #1a1a1a;
+            color: #d4af37;
+        }
         #start-btn {
-            padding: 15px 30px;
-            font-size: 1.2rem;
             background-color: #d4af37;
             color: #000;
-            border: none;
-            cursor: pointer;
             font-weight: bold;
-            border-radius: 5px;
             transition: 0.2s;
         }
         #start-btn:hover {
@@ -58,15 +71,22 @@
 </head>
 <body>
 
-    <!-- Click to Start Overlay -->
+    <!-- Start Screen & Level Selector -->
     <div id="start-screen">
         <h1>THE BACKROOMS</h1>
-        <button id="start-btn">CLICK TO START</button>
+        <div class="menu-container">
+            <label for="level-select">Select Level:</label>
+            <select id="level-select">
+                <option value="0">Level 0: The Lobby (Classic Yellow)</option>
+                <option value="1">Level 1: Habitable Zone (Concrete)</option>
+            </select>
+            <button id="start-btn">CLICK TO START</button>
+        </div>
     </div>
 
-    <div id="instructions">Use WASD to move, Mouse to look around. Don't hit the walls.</div>
+    <div id="instructions">WASD to move, Mouse to look. Press ESC if your mouse gets stuck.</div>
 
-    <!-- Include Three.js and PointerLockControls from CDN -->
+    <!-- Include Three.js and PointerLockControls -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/PointerLockControls.js"></script>
 
@@ -76,34 +96,34 @@
         let prevTime = performance.now();
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
-        
-        const walls = []; // Store wall bounding boxes for collision
+        const walls = [];
+        let currentLevel = "0";
 
         init();
         animate();
 
         function init() {
-            // 1. Scene setup with yellow backrooms aesthetic & fog
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0xd4af37);
-            scene.fog = new THREE.FogExp2(0xd4af37, 0.035);
-
-            // 2. Camera setup
             camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 1.6, 0); // Eye level height
+            camera.position.set(0, 1.6, 0);
 
-            // 3. Renderer setup
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
 
-            // 4. Pointer Lock Controls for Mouse Look
             controls = new THREE.PointerLockControls(camera, document.body);
 
             const startScreen = document.getElementById('start-screen');
             const startBtn = document.getElementById('start-btn');
+            const levelSelect = document.getElementById('level-select');
 
+            // Build initial default level layout right away on load
+            buildLevel(currentLevel);
+
+            // Instant lock on click to bypass security block
             startBtn.addEventListener('click', () => {
+                currentLevel = levelSelect.value;
+                buildLevel(currentLevel);
                 controls.lock();
             });
 
@@ -117,102 +137,103 @@
 
             scene.add(controls.getObject());
 
-            // 5. Lighting (Dim fluorescent style)
-            const ambientLight = new THREE.AmbientLight(0xfffaed, 0.7);
-            scene.add(ambientLight);
+            // Keyboard Listeners
+            document.addEventListener('keydown', (e) => {
+                if (e.code === 'KeyW') moveForward = true;
+                if (e.code === 'KeyA') moveLeft = true;
+                if (e.code === 'KeyS') moveBackward = true;
+                if (e.code === 'KeyD') moveRight = true;
+            });
 
-            const pointLight = new THREE.PointLight(0xffe87c, 1, 20);
-            pointLight.position.set(0, 3, 0);
-            scene.add(pointLight);
-
-            // 6. Materials
-            const wallMaterial = new THREE.MeshBasicMaterial({ color: 0xc29b38 });
-            const floorMaterial = new THREE.MeshBasicMaterial({ color: 0x8c7323 });
-            const ceilingMaterial = new THREE.MeshBasicMaterial({ color: 0x3b351a });
-
-            // 7. Build Environment (Floor & Ceiling)
-            const floorGeometry = new THREE.PlaneGeometry(50, 50);
-            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-            floor.rotation.x = -Math.PI / 2;
-            scene.add(floor);
-
-            const ceilingGeometry = new THREE.PlaneGeometry(50, 50);
-            const ceiling = new THREE.Mesh(ceilingGeometry, ceilingMaterial);
-            ceiling.rotation.x = Math.PI / 2;
-            ceiling.position.y = 4;
-            scene.add(ceiling);
-
-            // 8. Build Maze Walls with Collisions
-            // Helper function to create walls
-            function createWall(x, z, width, depth) {
-                const wallGeo = new THREE.BoxGeometry(width, 4, depth);
-                const wallMesh = new THREE.Mesh(wallGeo, wallMaterial);
-                wallMesh.position.set(x, 2, z);
-                scene.add(wallMesh);
-
-                // Create and store bounding box for collision detection
-                const box = new THREE.Box3().setFromObject(wallMesh);
-                walls.push(box);
-            }
-
-            // Outer boundaries
-            createWall(0, -25, 50, 1);
-            createWall(0, 25, 50, 1);
-            createWall(-25, 0, 1, 50);
-            createWall(25, 0, 1, 50);
-
-            // Internal Backrooms maze walls
-            createWall(-10, -10, 15, 1);
-            createWall(10, -5, 1, 15);
-            createWall(-5, 10, 15, 1);
-            createWall(5, 10, 1, 10);
-
-            // 9. Keyboard Event Listeners
-            const onKeyDown = function (event) {
-                switch (event.code) {
-                    case 'KeyW': moveForward = true; break;
-                    case 'KeyA': moveLeft = true; break;
-                    case 'KeyS': moveBackward = true; break;
-                    case 'KeyD': moveRight = true; break;
-                }
-            };
-
-            const onKeyUp = function (event) {
-                switch (event.code) {
-                    case 'KeyW': moveForward = false; break;
-                    case 'KeyA': moveLeft = false; break;
-                    case 'KeyS': moveBackward = false; break;
-                    case 'KeyD': moveRight = false; break;
-                }
-            };
-
-            document.addEventListener('keydown', onKeyDown);
-            document.addEventListener('keyup', onKeyUp);
+            document.addEventListener('keyup', (e) => {
+                if (e.code === 'KeyW') moveForward = false;
+                if (e.code === 'KeyA') moveLeft = false;
+                if (e.code === 'KeyS') moveBackward = false;
+                if (e.code === 'KeyD') moveRight = false;
+            });
 
             window.addEventListener('resize', onWindowResize);
         }
 
-        function windowResize() {
+        function buildLevel(levelId) {
+            walls.length = 0;
+            
+            // Clear old meshes from scene
+            scene.children.forEach(child => {
+                if (child !== camera && child !== controls.getObject() && child.type !== 'AmbientLight' && child.type !== 'PointLight') {
+                    scene.remove(child);
+                }
+            });
+
+            if (levelId === "0") {
+                scene.background = new THREE.Color(0xd4af37);
+                scene.fog = new THREE.FogExp2(0xd4af37, 0.035);
+                createEnvironment(
+                    new THREE.MeshBasicMaterial({ color: 0xc29b38 }),
+                    new THREE.MeshBasicMaterial({ color: 0x8c7323 }),
+                    new THREE.MeshBasicMaterial({ color: 0x3b351a })
+                );
+            } else if (levelId === "1") {
+                scene.background = new THREE.Color(0x3a3a3a);
+                scene.fog = new THREE.FogExp2(0x3a3a3a, 0.04);
+                createEnvironment(
+                    new THREE.MeshBasicMaterial({ color: 0x505050 }),
+                    new THREE.MeshBasicMaterial({ color: 0x242424 }),
+                    new THREE.MeshBasicMaterial({ color: 0x111111 })
+                );
+
+                // Add entity box in Level 1
+                const entityMesh = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.8, 2, 0.5),
+                    new THREE.MeshBasicMaterial({ color: 0xff0000 })
+                );
+                entityMesh.position.set(0, 1, -12);
+                scene.add(entityMesh);
+            }
+        }
+
+        function createEnvironment(wallMat, floorMat, ceilMat) {
+            const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            const ceiling = new THREE.Mesh(new THREE.PlaneGeometry(50, 50), ceilMat);
+            ceiling.rotation.x = Math.PI / 2;
+            ceiling.position.y = 4;
+            scene.add(ceiling);
+
+            function addWall(x, z, w, d) {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 4, d), wallMat);
+                mesh.position.set(x, 2, z);
+                scene.add(mesh);
+                walls.push(new THREE.Box3().setFromObject(mesh));
+            }
+
+            addWall(0, -25, 50, 1);
+            addWall(0, 25, 50, 1);
+            addWall(-25, 0, 1, 50);
+            addWall(25, 0, 1, 50);
+
+            addWall(-10, -10, 15, 1);
+            addWall(10, -5, 1, 15);
+            addWall(-5, 10, 15, 1);
+        }
+
+        function checkCollision(position) {
+            const playerBox = new THREE.Box3(
+                new THREE.Vector3(position.x - 0.4, position.y - 1.5, position.z - 0.4),
+                new THREE.Vector3(position.x + 0.4, position.y + 0.5, position.z + 0.4)
+            );
+            for (let wall of walls) {
+                if (playerBox.intersectsBox(wall)) return true;
+            }
+            return false;
+        }
+
+        function onWindowResize() {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // Simple Collision Check against player position
-        function checkCollision(position) {
-            const playerRadius = 0.4;
-            // Create a bounding box representing the player's space
-            const playerBox = new THREE.Box3(
-                new THREE.Vector3(position.x - playerRadius, position.y - 1.5, position.z - playerRadius),
-                new THREE.Vector3(position.x + playerRadius, position.y + 0.5, position.z + playerRadius)
-            );
-
-            for (let i = 0; i < walls.length; i++) {
-                if (playerBox.intersectsBox(walls[i])) {
-                    return true; // Collision!
-                }
-            }
-            return false;
         }
 
         function animate() {
@@ -227,23 +248,17 @@
 
                 direction.z = Number(moveForward) - Number(moveBackward);
                 direction.x = Number(moveRight) - Number(moveLeft);
-                direction.normalize(); // Consistent movement speed in all directions
+                direction.normalize();
 
                 if (moveForward || moveBackward) velocity.z -= direction.z * 40.0 * delta;
                 if (moveLeft || moveRight) velocity.x -= direction.x * 40.0 * delta;
 
-                // Predict Next Position X
-                const oldPosition = controls.getObject().position.clone();
+                const oldPos = controls.getObject().position.clone();
                 controls.moveRight(-velocity.x * delta);
-                if (checkCollision(controls.getObject().position)) {
-                    controls.getObject().position.x = oldPosition.x; // Revert X if collision
-                }
+                if (checkCollision(controls.getObject().position)) controls.getObject().position.x = oldPos.x;
 
-                // Predict Next Position Z
                 controls.moveForward(-velocity.z * delta);
-                if (checkCollision(controls.getObject().position)) {
-                    controls.getObject().position.z = oldPosition.z; // Revert Z if collision
-                }
+                if (checkCollision(controls.getObject().position)) controls.getObject().position.z = oldPos.z;
 
                 prevTime = time;
             }
